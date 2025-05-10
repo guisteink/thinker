@@ -52,9 +52,7 @@ const createHandlers = (whatsappService, deepseekService, mongoService) => ({
     const initialPrompt = "Olá! Para agendar, qual serviço você gostaria?";
     const response = await deepseekService.processMessage(msg.from, initialPrompt);
     await whatsappService.sendWithTyping(msg.from, response);
-    // A IA continuará a conversa. Em algum momento, a IA deve retornar um JSON.
-    // Você precisará de uma lógica no handleWithAI (em whatsapp.js) para detectar esse JSON
-    // e então chamar mongoService.createAppointment.
+    // A lógica de parsear o JSON e criar o agendamento agora está em WhatsAppService.handleWithAI
   },
 
   /**
