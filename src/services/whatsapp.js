@@ -1,22 +1,41 @@
 const { Client } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const config = require('../config');
-const { log, delay } = require('../utils');
+const { format, addDays, parseISO, startOfDay } = require('date-fns'); 
+const { ptBR } = require('date-fns/locale');
+const { log, delay } = require('../utils'); 
 const createHandlers = require('./handlers');
 const deepseekServiceInstance = require('./deepseek'); 
-const mongoServiceInstance = require('./mongoService'); // Importe o mongoService
+const mongoServiceInstance = require('./mongoService');
 
 class WhatsAppService {
   constructor() {
     this.client = new Client(config.whatsapp.clientOptions);
     this.setupEventHandlers();
-    this.ownNumber = null; // Vai armazenar o número do bot
-    this.menuSentToUsers = new Set(); // NOVO: Para rastrear quem recebeu o menu
-    
-    // Injete as três dependências
+    this.ownNumber = null;
+    this.menuSentToUsers = new Set();
+    this.userStates = new Map(); 
+
     this.handlers = createHandlers(this, deepseekServiceInstance, mongoServiceInstance);
-    this.deepseekService = deepseekServiceInstance; // Armazene se precisar em outros métodos de WhatsAppService
-    this.mongoService = mongoServiceInstance; // Armazene se precisar
+    this.deepseekService = deepseekServiceInstance;
+    this.mongoService = mongoServiceInstance;
+  }
+
+  // Method to set user state
+  setUserState(userId, state) {
+    this.userStates.set(userId, state);
+    log(`State set for ${userId.split('@')[0]}: ${state.currentStep}`, 'debug');
+  }
+
+  // Method to get user state
+  getUserState(userId) {
+    return this.userStates.get(userId);
+  }
+
+  // Method to clear user state
+  clearUserState(userId) {
+    this.userStates.delete(userId);
+    log(`State cleared for ${userId.split('@')[0]}`, 'debug');
   }
 
   setupEventHandlers() {
@@ -34,12 +53,12 @@ class WhatsAppService {
 
   handleReady() {
     log('WhatsApp client is ready!');
-    
-    // Obtém e armazena o próprio número quando o cliente estiver pronto
-    this.client.getWid().then(wid => {
-      this.ownNumber = wid.user; // Número sem o @c.us
-      log(`Bot inicializado no número: ${this.ownNumber}`);
-    });
+    if (this.client.info && this.client.info.wid) {
+        this.ownNumber = this.client.info.wid.user; 
+        log(`Bot inicializado no número: ${this.ownNumber}`);
+    } else {
+        log('Não foi possível obter o WID do bot no evento ready.', 'warn');
+    }
   }
 
   handleDisconnect(reason) {
@@ -50,255 +69,352 @@ class WhatsAppService {
     log('Authentication failed', 'error');
   }
   
-  /**
-   * Constrói a mensagem do menu
-   * @returns {string} - Mensagem formatada do menu
-   */
   _buildMenuMessage() {
     const servicosLista = config.appInfo.servicosRealizados
       .map(servico => `- ${servico}`)
-      .join('\n'); // Used for replacing {servicosLista} if it appears in options
-    
-    // More robust replacement for {servicosRealizados} in the footer
-    const servicosParaFooter = config.appInfo.servicosRealizados.join(', ');
-
-    let header = config.menuConfig.header
-      .replace('{nomePessoa}', config.appInfo.nomePessoa);
-      
-    const optionsText = Object.entries(config.menuConfig.options)
-      .map(([key, value]) => {
-        let optionText = value
-          .replace('{chavePix}', config.appInfo.chavePix)
-          .replace('{servicosLista}', servicosLista); // If any option uses {servicosLista}
-        return `  ${key}. ${optionText}`;
-      })
       .join('\n');
-    
-    let footer = config.menuConfig.footer
-      .replace('{chavePix}', config.appInfo.chavePix)
-      .replace('{servicosRealizados}', servicosParaFooter); // Correctly replace in footer
-      
+    const servicosParaFooter = config.appInfo.servicosRealizados.join(', ');
+    let header = config.menuConfig.header.replace('{nomePessoa}', config.appInfo.nomePessoa);
+    const optionsText = Object.entries(config.menuConfig.options)
+      .map(([key, value]) => `  ${key}. ${value.replace('{chavePix}', config.appInfo.chavePix).replace('{servicosLista}', servicosLista)}`)
+      .join('\n');
+    let footer = config.menuConfig.footer.replace('{chavePix}', config.appInfo.chavePix).replace('{servicosRealizados}', servicosParaFooter);
     return "```\n" + `${header}\n\n${config.menuConfig.optionPrefix}\n${optionsText}\n\n${footer}` + "\n```";
+  }
+
+  _normalizeServiceName(name) {
+    if (typeof name !== 'string') return '';
+    return name.toLowerCase().replace(/\s+/g, '-');
+  }
+
+  async _handleAppointmentAwaitingService(msg, userState) {
+    const userId = msg.from;
+    const messageText = msg.body.trim();
+    const rawSelectedService = messageText;
+    const normalizedUserInputService = this._normalizeServiceName(rawSelectedService);
+
+    const matchedService = config.appInfo.servicosRealizados.find(
+      s => s === normalizedUserInputService
+    );
+
+    if (matchedService) {
+      userState.data.tipoDeServico = matchedService;
+      const serviceDuration = this.mongoService.Appointment.schema.paths.tempoDeAgendamento.defaultValue || 30;
+      const nomeAtendente = config.appInfo.nomePessoa;
+      const today = startOfDay(new Date());
+      let weeklySlotsMessage = `Para *${matchedService}*, temos os seguintes horários disponíveis nesta semana (07:00 - 20:00):\n`;
+      const presentedSlotsData = [];
+      let foundAnySlots = false;
+
+      for (let i = 0; i < 7; i++) {
+        const currentDate = addDays(today, i);
+        const dateStr = format(currentDate, 'yyyy-MM-dd');
+        const dayName = format(currentDate, 'eeee', { locale: ptBR });
+        const formattedDateDisplay = format(currentDate, 'dd/MM/yyyy');
+
+        const availableSlotsForDay = await this.mongoService.getAvailableSlots(
+          dateStr, nomeAtendente, serviceDuration, "07:00", "20:00"
+        );
+
+        if (availableSlotsForDay && availableSlotsForDay.length > 0) {
+          foundAnySlots = true;
+          weeklySlotsMessage += `\n*${dayName} (${formattedDateDisplay}):*\n`;
+          const daySlotsWithOptions = [];
+          availableSlotsForDay.slice(0, 3).forEach((slot, index) => {
+            const optionLetter = String.fromCharCode(65 + index);
+            weeklySlotsMessage += `  ${optionLetter}. ${slot}\n`;
+            daySlotsWithOptions.push(slot);
+          });
+          presentedSlotsData.push({ dayName, date: dateStr, times: daySlotsWithOptions });
+        }
+      }
+
+      if (foundAnySlots) {
+        userState.currentStep = 'appointment_awaiting_slot_choice';
+        userState.data.presentedSlots = presentedSlotsData;
+        this.setUserState(userId, userState);
+        weeklySlotsMessage += "\nDigite o dia e a letra da opção (ex: Segunda A, Terça B) ou 'cancelar'.";
+        await this.sendWithTyping(userId, weeklySlotsMessage);
+      } else {
+        await this.sendWithTyping(userId, `Desculpe, não há horários disponíveis para *${matchedService}* com ${nomeAtendente} nos próximos 7 dias (07:00-20:00). Tente outro serviço ou digite 'menu'.`);
+        this.clearUserState(userId);
+      }
+    } else {
+      const displayableServices = config.appInfo.servicosRealizados.join(', ');
+      await this.sendWithTyping(userId, `Serviço "${rawSelectedService}" não encontrado. Por favor, escolha um dos serviços listados: ${displayableServices}, ou digite 'cancelar' para sair do agendamento.`);
+    }
+  }
+
+  async _handleAppointmentAwaitingSlotChoice(msg, userState) {
+    const userId = msg.from;
+    const userShortId = userId.split('@')[0];
+    const messageText = msg.body.trim();
+    const choiceInput = messageText;
+    const parts = choiceInput.split(/\s+/);
+    let selectedDayNameInput = '';
+    let selectedOptionLetter = '';
+
+    if (parts.length >= 2) {
+      selectedOptionLetter = parts.pop().toUpperCase();
+      selectedDayNameInput = parts.join(' ');
+    }
+    
+    let chosenDate = null;
+    let chosenTime = null;
+
+    if (selectedOptionLetter.length === 1 && selectedOptionLetter >= 'A' && selectedOptionLetter <= 'C') {
+      const optionIndex = selectedOptionLetter.charCodeAt(0) - 65;
+      for (const dayData of userState.data.presentedSlots) {
+        if (dayData.dayName.toLowerCase().startsWith(selectedDayNameInput.toLowerCase())) {
+          if (dayData.times && optionIndex < dayData.times.length) {
+            chosenDate = dayData.date;
+            chosenTime = dayData.times[optionIndex];
+            break;
+          }
+        }
+      }
+    }
+
+    if (chosenDate && chosenTime) {
+      userState.data.dataAgendamento = chosenDate;
+      userState.data.horaInicio = chosenTime;
+      const clientName = msg.notifyName || userShortId;
+      userState.data.nomeCliente = clientName;
+
+      const appointmentDetails = {
+        tipoDeServico: userState.data.tipoDeServico,
+        nomeCliente: userState.data.nomeCliente,
+        dataAgendamento: userState.data.dataAgendamento,
+        horaInicio: userState.data.horaInicio,
+        nomeAtendente: config.appInfo.nomePessoa,
+        whatsappClientId: userId,
+      };
+      try {
+        const newAppointment = await this.mongoService.createAppointment(appointmentDetails);
+        const formattedDate = format(parseISO(newAppointment.dataAgendamento), 'dd/MM/yyyy');
+        const dayOfWeek = format(parseISO(newAppointment.dataAgendamento), 'eeee', { locale: ptBR });
+        await this.sendWithTyping(userId, `Agendamento concluído para ${newAppointment.nomeCliente}! Serviço: ${newAppointment.tipoDeServico}, Dia: ${dayOfWeek}, ${formattedDate}, Hora: ${newAppointment.horaInicio}. Obrigado! Digite 'menu' para mais opções.`);
+        this.clearUserState(userId);
+        this.menuSentToUsers.add(userShortId);
+      } catch (error) {
+        log(`Erro ao criar agendamento final para ${userShortId}: ${error.message}`, 'error');
+        if (error.name === 'ValidationError') {
+          let validationMessages = "Houve um problema com os dados do agendamento:\n";
+          for (const field in error.errors) {
+            validationMessages += `- ${error.errors[field].message}\n`;
+          }
+          await this.sendWithTyping(userId, validationMessages + "Por favor, tente novamente ou digite 'menu'.");
+        } else {
+          await this.sendWithTyping(userId, "Desculpe, ocorreu um erro ao finalizar seu agendamento. Por favor, tente novamente ou digite 'menu'.");
+        }
+        this.clearUserState(userId);
+      }
+    } else {
+      let weeklySlotsMessage = `Opção inválida: "${choiceInput}".\nPara *${userState.data.tipoDeServico}*, os horários são:\n`;
+      userState.data.presentedSlots.forEach(dayData => {
+          const formattedDateDisplay = format(parseISO(dayData.date), 'dd/MM/yyyy');
+          weeklySlotsMessage += `\n*${dayData.dayName} (${formattedDateDisplay}):*\n`;
+          dayData.times.forEach((slot, index) => {
+              const optionLetter = String.fromCharCode(65 + index);
+              weeklySlotsMessage += `  ${optionLetter}. ${slot}\n`;
+          });
+      });
+      weeklySlotsMessage += "\nDigite o dia e a letra da opção (ex: Segunda A, Terça B) ou 'cancelar'.";
+      await this.sendWithTyping(userId, weeklySlotsMessage);
+    }
   }
 
   async handleMessage(msg) {
     try {
-      log(`Received message from ${msg.from}: "${msg.body}"`, 'info');
-      // Ignore non-private messages
+      log(`Received message from ${msg.from} (NotifyName: ${msg.notifyName || 'N/A'}): "${msg.body}"`, 'info');
       if (!msg.from.endsWith('@c.us')) return;
-      
-      // Verifica se a mensagem está vazia
       if (!msg.body || msg.body.trim() === "") {
-        const senderId = msg.from.split('@')[0]; // Renomeado para senderId para consistência
-        log(`Mensagem vazia recebida de ${senderId}, ignorando`, 'info');
-        return; // Não responde a mensagens vazias
+        log(`Mensagem vazia recebida de ${msg.from.split('@')[0]}, ignorando`, 'info');
+        return;
       }
 
-      const userId = msg.from.split('@')[0]; // Usar userId para clareza
-      // Verifica se a mensagem é do próprio número
-      // Adicionado verificação se this.ownNumber já foi definido
-      if (this.ownNumber && userId === this.ownNumber) {
-        log(`Mensagem enviada pelo próprio número: ${userId}`);
-        return; // Não responda às próprias mensagens
+      const userId = msg.from;
+      const userShortId = userId.split('@')[0];
+
+      if (this.ownNumber && userShortId === this.ownNumber) {
+        log(`Mensagem enviada pelo próprio número: ${userShortId}`);
+        return;
       }
       
       const messageText = msg.body.trim();
       const optionKeys = Object.keys(config.menuConfig.options);
-      const AI_COMMAND_PREFIX = 'ai:'; // Definindo como constante local para clareza
+      const AI_COMMAND_PREFIX = 'ai:';
 
-      // 1. Usuário solicitou o menu explicitamente
+      if (['cancelar', 'sair', 'parar', 'menu'].includes(messageText.toLowerCase())) {
+        const currentState = this.getUserState(userId);
+        if (currentState && currentState.currentStep && currentState.currentStep.startsWith('appointment_')) {
+            this.clearUserState(userId);
+            if (messageText.toLowerCase() !== 'menu') { // If 'menu', let the dedicated block below handle it
+                await this.sendWithTyping(userId, "Agendamento cancelado. Digite 'menu' para ver as opções.");
+                this.menuSentToUsers.add(userShortId); 
+                return;
+            }
+        }
+      }
+      
+      const userState = this.getUserState(userId);
+      if (userState && userState.currentStep) {
+        switch (userState.currentStep) {
+          case 'appointment_awaiting_service':
+            return await this._handleAppointmentAwaitingService(msg, userState);
+          case 'appointment_awaiting_slot_choice':
+            return await this._handleAppointmentAwaitingSlotChoice(msg, userState);
+          default:
+            log(`Unknown user state: ${userState.currentStep} for user ${userShortId}`, 'warn');
+            this.clearUserState(userId);
+            await this.sendWithTyping(userId, "Algo deu errado com seu processo atual. Voltando ao início. Digite 'menu'.");
+            this.menuSentToUsers.add(userShortId);
+            return;
+        }
+      }
+
       if (messageText.toLowerCase() === 'menu') {
-        log(`Usuário ${userId} solicitou o menu explicitamente.`, 'info');
+        log(`Usuário ${userShortId} solicitou o menu explicitamente.`, 'info');
+        this.clearUserState(userId); 
         const menuMessage = this._buildMenuMessage();
-        await this.sendWithTyping(msg.from, menuMessage);
-        this.menuSentToUsers.add(userId); // Marca que o menu foi (re)enviado
+        await this.sendWithTyping(userId, menuMessage);
+        this.menuSentToUsers.add(userShortId);
         return;
       }
 
-      // 2. Usuário selecionou uma opção numérica do menu
       if (/^\d+$/.test(messageText) && optionKeys.includes(messageText)) {
-        if (!this.menuSentToUsers.has(userId)) {
-            log(`Usuário ${userId} tentou opção de menu (${messageText}) sem ter recebido o menu. Enviando menu primeiro.`, 'info');
+        if (!this.menuSentToUsers.has(userShortId) && !this.getUserState(userId)) {
+            log(`Usuário ${userShortId} tentou opção de menu (${messageText}) sem ter recebido o menu. Enviando menu primeiro.`, 'info');
             const menuMessage = this._buildMenuMessage();
-            await this.sendWithTyping(msg.from, menuMessage);
-            this.menuSentToUsers.add(userId);
-            // O usuário precisará digitar a opção novamente após ver o menu.
+            await this.sendWithTyping(userId, menuMessage);
+            this.menuSentToUsers.add(userShortId);
             return; 
         }
-        log(`Usuário ${userId} selecionou a opção de menu: ${messageText}`, 'info');
-        this.menuSentToUsers.add(userId); 
+        log(`Usuário ${userShortId} selecionou a opção de menu: ${messageText}`, 'info');
+        this.clearUserState(userId); 
+        this.menuSentToUsers.add(userShortId); 
         return await this.handlers.handleMenuOption(messageText, msg);
       }
       
-      // 3. Usuário usou um comando direto para IA
       if (messageText.toLowerCase().startsWith(AI_COMMAND_PREFIX)) {
-        log(`Usuário ${userId} usou comando direto para IA: "${messageText}"`, 'info');
+        log(`Usuário ${userShortId} usou comando direto para IA: "${messageText}"`, 'info');
         const query = messageText.substring(AI_COMMAND_PREFIX.length).trim();
-        this.menuSentToUsers.add(userId); 
-        return await this.handleAIDirectQuery(msg.from, query);
+        this.clearUserState(userId); 
+        this.menuSentToUsers.add(userShortId); 
+        return await this.handleAIDirectQuery(userId, query);
       }
       
-      // 4. Há uma conversa de IA em andamento (e o menu já foi visto/enviado)
-      if (this.menuSentToUsers.has(userId) && this.hasOngoingConversation(userId)) {
-        log(`Usuário ${userId} tem conversa de IA em andamento. Processando com IA: "${messageText}"`, 'info');
-        return await this.handleWithAI(msg); // IA continua a conversa (ex: agendamento)
+      if (this.menuSentToUsers.has(userShortId) && this.hasOngoingConversation(userId)) {
+        log(`Usuário ${userShortId} tem conversa de IA em andamento. Processando com IA: "${messageText}"`, 'info');
+        return await this.handleWithAI(msg);
       }
       
-      // 5. Lógica de Envio do Menu Inicial para novo usuário
-      if (!this.menuSentToUsers.has(userId)) {
-        log(`Enviando menu pela primeira vez para ${userId}`, 'info');
+      if (!this.menuSentToUsers.has(userShortId)) {
+        log(`Enviando menu pela primeira vez para ${userShortId}`, 'info');
         const menuMessage = this._buildMenuMessage();
-        await this.sendWithTyping(msg.from, menuMessage);
-        this.menuSentToUsers.add(userId);
+        await this.sendWithTyping(userId, menuMessage);
+        this.menuSentToUsers.add(userShortId);
         return; 
       }
       
-      // Se chegamos aqui, o menu já foi enviado, e a mensagem não é "menu", 
-      // nem uma opção numérica válida, nem um comando "ai:", nem uma continuação de conversa IA.
-      // O bot deve ficar em silêncio.
-      log(`Menu já enviado para ${userId}. Mensagem "${messageText}" não corresponde a uma ação esperada. Ignorando.`, 'info');
-      return; // Bot fica em silêncio
+      if (this.menuSentToUsers.has(userShortId) && !this.hasOngoingConversation(userId)) {
+          log(`Menu enviado para ${userShortId}. Mensagem "${messageText}" não é comando nem opção. Tentando IA geral.`, 'info');
+          return await this.handleWithAI(msg); 
+      }
+
+      log(`Menu já enviado para ${userShortId}. Mensagem "${messageText}" não corresponde a uma ação esperada. Ignorando.`, 'info');
       
     } catch (error) {
-      const errorUserId = msg && msg.from ? msg.from.split('@')[0] : 'unknown_user';
-      log(`Error handling message: ${error.message} for user ${errorUserId}`, 'error');
-      log(`Stack: ${error.stack}`, 'error');
+      log(`Erro ao processar mensagem de ${msg.from.split('@')[0]}: ${error.message}`, 'error');
+      log(`Stack: ${error.stack}`, 'error'); 
       try {
-        if (msg && msg.from) { // Garante que msg.from existe
-          await this.sendWithTyping(msg.from, "Desculpe, ocorreu um erro ao processar sua solicitação. Tente novamente ou digite 'menu'.");
-        }
+        await this.sendWithTyping(msg.from, "Desculpe, ocorreu um erro ao processar sua solicitação. Tente novamente ou digite 'menu'.");
       } catch (sendError) {
-        log(`Error sending error message to user ${errorUserId}: ${sendError.message}`, 'error');
+        log(`Erro ao enviar mensagem de erro para ${msg.from.split('@')[0]}: ${sendError.message}`, 'error');
+      }
+      const userId = msg.from;
+      if (this.getUserState(userId)) {
+          this.clearUserState(userId);
+          log(`State cleared for ${userId.split('@')[0]} due to error.`, 'warn');
       }
     }
   }
 
-  /**
-   * Verifica se há uma conversa em andamento
-   * @param {string} userId - ID do usuário 
-   * @returns {boolean} - Verdadeiro se há conversa em andamento
-   */
   hasOngoingConversation(userId) {
-    // Use a instância injetada
     return this.deepseekService.hasActiveConversation(userId);
   }
 
-  /**
-   * Processa uma mensagem usando IA
-   * @param {Object} msg - Objeto de mensagem do WhatsApp
-   */
   async handleWithAI(msg) {
-    const userId = msg.from.split('@')[0];
+    const userId = msg.from; // Use full ID for deepseekService
+    const userShortId = userId.split('@')[0];
     try {
       const chat = await this.client.getChatById(msg.from);
       await chat.sendStateTyping();
       
-      const aiResponse = await this.deepseekService.processMessage(msg.from, msg.body);
+      const aiResponse = await this.deepseekService.processMessage(userId, msg.body);
       
-      // Tentar detectar se a resposta da IA é um JSON de agendamento
       try {
         const potentialJson = JSON.parse(aiResponse);
         if (potentialJson.tipoDeServico && potentialJson.dataAgendamento && potentialJson.horaInicio && potentialJson.nomeCliente) {
-            log(`IA retornou dados de agendamento para ${userId}: ${JSON.stringify(potentialJson)}`, 'info');
-            
-            const tempoDeAgendamento = potentialJson.tempoDeAgendamento || 30; // Default se não fornecido
-            const horaFimCalculada = this.mongoService._minutesToTimeString(
-                this.mongoService._timeStringToMinutes(potentialJson.horaInicio) + tempoDeAgendamento
-            );
-
+            log(`IA retornou dados de agendamento para ${userShortId}: ${JSON.stringify(potentialJson)}`, 'info');
             const appointmentData = {
                 tipoDeServico: potentialJson.tipoDeServico,
                 nomeCliente: potentialJson.nomeCliente,
                 dataAgendamento: potentialJson.dataAgendamento,
                 horaInicio: potentialJson.horaInicio,
-                nomeAtendente: config.appInfo.nomePessoa,
-                tempoDeAgendamento: tempoDeAgendamento,
-                horaFim: potentialJson.horaFim || horaFimCalculada,
-                valorDoServico: potentialJson.valorDoServico || 50, // Default se não fornecido
+                nomeAtendente: config.appInfo.nomePessoa, 
                 whatsappClientId: msg.from,
-                // estaPago e clienteRecorrente podem ser definidos depois ou com mais perguntas
             };
-
             const newAppointment = await this.mongoService.createAppointment(appointmentData);
-            await this.sendWithTyping(msg.from, `Ótimo, ${newAppointment.nomeCliente}! Seu agendamento para ${newAppointment.tipoDeServico} no dia ${newAppointment.dataAgendamento} às ${newAppointment.horaInicio} com ${newAppointment.nomeAtendente} foi confirmado! Posso ajudar com mais alguma coisa ou digite 'menu'.`);
-            
-            // Limpar contexto de agendamento da conversa da IA para não tentar criar de novo
-            this.deepseekService.addToConversation(msg.from, 'system', 'O agendamento foi concluído. A conversa agora é geral. Pergunte se posso ajudar com mais algo ou se deseja ver o menu.');
-            return true;
+            await this.sendWithTyping(msg.from, `Ótimo, ${newAppointment.nomeCliente}! Seu agendamento para ${newAppointment.tipoDeServico} no dia ${format(parseISO(newAppointment.dataAgendamento), 'dd/MM/yyyy')} às ${newAppointment.horaInicio} com ${newAppointment.nomeAtendente} foi confirmado! Posso ajudar com mais alguma coisa ou digite 'menu'.`);
+            this.deepseekService.clearConversationContext(userId, 'O agendamento foi concluído. A conversa agora é geral. Pergunte se posso ajudar com mais algo ou se deseja ver o menu.');
+            return true; 
         }
       } catch (jsonError) {
-        // Não era um JSON ou não era o JSON esperado, apenas uma resposta normal da IA
-        log(`Resposta da IA para ${userId} não é um JSON de agendamento: "${aiResponse.substring(0,100)}"`, 'debug');
+        // Not a JSON for appointment, send the AI response as is
+        log(`Resposta da IA para ${userShortId} não é um JSON de agendamento (ou erro ao parsear): "${aiResponse.substring(0,100)}"`, 'debug');
       }
       
       await this.sendWithTyping(msg.from, aiResponse);
       return true;
     } catch (error) {
-      log(`AI processing error for ${userId}: ${error.message}`, 'error');
-      await this.sendWithTyping(msg.from, 
-        "Desculpe, não consegui processar sua solicitação no momento. Tente perguntar de forma diferente ou digite 'menu' para ver as opções."
-      );
+      log(`Erro no handleWithAI para ${userShortId}: ${error.message}`, 'error');
+      await this.sendWithTyping(msg.from, "Desculpe, tive um problema ao processar sua mensagem com a IA.");
       return false;
     }
   }
 
-  /**
-   * Processa uma consulta direta para a IA
-   * @param {string} from - ID do destinatário
-   * @param {string} query - Consulta para a IA
-   */
   async handleAIDirectQuery(from, query) {
+    const userShortId = from.split('@')[0];
     try {
-      // Notificar o usuário
-      await this.sendWithTyping(from, "Processando sua pergunta...");
-      
-      // Processar com DeepSeek
-      const aiResponse = await this.deepseekService.processMessage(from, query);
-      
-      // Enviar resposta
+      await this.sendWithTyping(from, "Consultando a IA...");
+      // Pass `from` (full userId) to deepseekService
+      const aiResponse = await this.deepseekService.processMessage(from, query); 
       await this.sendWithTyping(from, aiResponse);
-      
-      return true;
     } catch (error) {
-      log(`AI direct query error: ${error.message}`, 'error');
-      await this.sendWithTyping(from, 
-        "Desculpe, tive um problema ao processar sua consulta. Por favor, tente novamente mais tarde."
-      );
-      return false;
+      log(`Erro no handleAIDirectQuery para ${userShortId}: ${error.message}`, 'error');
+      await this.sendWithTyping(from, "Desculpe, tive um problema ao consultar a IA.");
     }
   }
 
-  /**
-   * Send a message with typing indication
-   * @param {string} to - Recipient
-   * @param {string} text - Message content
-   */
   async sendWithTyping(to, text) {
     try {
-      // Validate the recipient ID first
-      if (!to || typeof to !== 'string' || !to.endsWith('@c.us')) {
-        log(`Invalid recipient ID: ${to}`, 'error');
-        throw new Error(`Invalid recipient ID: ${to}`);
-      }
-      
       const chat = await this.client.getChatById(to);
-      
-      log(`Sending typing indicator to ${to.split('@')[0]}`, 'info');
       await chat.sendStateTyping();
-      
-      await delay(config.delays.typing);
-      
-      log(`Sending message to ${to.split('@')[0]}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'info');
-      return await this.client.sendMessage(to, text);
+      await delay(config.delays.typing); 
+      await this.client.sendMessage(to, text.trim());
+      log(`Sending message to ${to.split('@')[0]}: "${text.substring(0, 50)}..."`, 'info');
     } catch (error) {
-      log(`Error sending message to ${to}: ${error.message}`, 'error');
-      throw error;
+      log(`Erro ao enviar mensagem com typing para ${to.split('@')[0]}: ${error.message}`, 'error');
     }
   }
 
   initialize() {
-    this.client.initialize();
-    return this.client;
+    return this.client.initialize()
+      .catch(err => {
+        log(`Erro durante a inicialização do cliente WhatsApp: ${err.message}`, 'error');
+        throw err; 
+      });
   }
 }
 

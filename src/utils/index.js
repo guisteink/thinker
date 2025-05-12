@@ -15,7 +15,10 @@ const log = (message, level = 'info') => {
   console[level](`[${timestamp}] [${level.toUpperCase()}] ${message}`);
 };
 
+const { parseDateInput } = require('./dateUtils');
+
 module.exports = {
   delay,
-  log
+  log,
+  parseDateInput
 };

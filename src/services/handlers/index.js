@@ -4,7 +4,7 @@ const { log } = require('../../utils');
 /**
  * Objeto contendo todos os handlers para opções do menu
  * @param {Object} whatsappService - Instância do serviço WhatsApp
- * @param {Object} deepseekService - Instância do serviço DeepSeek
+ * @param {Object} deepseekService - Instância do serviço DeepSeek (still needed for other handlers or fallbacks)
  * @param {Object} mongoService - Instância do serviço MongoDB
  */
 const createHandlers = (whatsappService, deepseekService, mongoService) => ({
@@ -16,7 +16,8 @@ const createHandlers = (whatsappService, deepseekService, mongoService) => ({
     try {
       const dataAtual = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
       const nomeAtendentePadrao = config.appInfo.nomePessoa; // Ou um atendente específico
-      const duracaoServicoPadrao = 30; // minutos
+      const appointmentDefaults = mongoService.Appointment.schema.paths.tempoDeAgendamento.defaultValue;
+      const duracaoServicoPadrao = typeof appointmentDefaults === 'function' ? appointmentDefaults() : appointmentDefaults || 30;
 
       const availableSlots = await mongoService.getAvailableSlots(dataAtual, nomeAtendentePadrao, duracaoServicoPadrao);
 
@@ -26,7 +27,7 @@ const createHandlers = (whatsappService, deepseekService, mongoService) => ({
       } else {
         responseMessage += "Desculpe, não há horários disponíveis para hoje com os critérios informados.";
       }
-      responseMessage += "\n\nPara ver outros dias ou serviços, por favor, especifique.";
+      responseMessage += "\n\nPara ver outros dias ou serviços, por favor, especifique ou digite 'menu'.";
       await whatsappService.sendWithTyping(msg.from, responseMessage);
 
     } catch (error) {
@@ -36,23 +37,31 @@ const createHandlers = (whatsappService, deepseekService, mongoService) => ({
   },
 
   /**
-   * Handle option 2: Create appointment
+   * Handle option 2: Create appointment (Rule-based flow)
    */
   async handleCreateAppointment(msg) {
-    const userId = msg.from.split('@')[0];
-    log(`Usuário ${userId} iniciou agendamento de horário`, 'info');
+    const userId = msg.from; // msg.from is the full ID like 123@c.us
+    log(`Usuário ${userId.split('@')[0]} iniciou agendamento de horário (fluxo guiado)`, 'info');
+
+    // Set initial state for the rule-based appointment flow
+    whatsappService.setUserState(userId, {
+        currentStep: 'appointment_awaiting_service',
+        data: {} // To store collected info like service, date, time, name
+    });
+
+    if (!config.appInfo.servicosRealizados || config.appInfo.servicosRealizados.length === 0) {
+        await whatsappService.sendWithTyping(msg.from, "Desculpe, não há serviços configurados no momento. Não é possível agendar.");
+        whatsappService.clearUserState(userId); 
+        return;
+    }
+
+    const servicosFormatados = config.appInfo.servicosRealizados
+      .map((servico, index) => `${index + 1}. ${servico}`) 
+      .join('\n');
+
+    const firstQuestion = `Para agendar, qual serviço você gostaria? Seguem os serviços realizados:\n${servicosFormatados}`;
     
-    // Contexto para a IA
-    deepseekService.addToConversation(
-      msg.from, 
-      'system', 
-      `O usuário deseja agendar um horário. Colete as seguintes informações: tipo de serviço, data (YYYY-MM-DD), hora de início (HH:MM), nome do cliente. O nome do atendente será ${config.appInfo.nomePessoa}. Após coletar, você me fornecerá um JSON com esses dados para eu salvar. Exemplo de JSON: {"tipoDeServico": "Corte Masculino", "dataAgendamento": "2025-05-15", "horaInicio": "14:30", "nomeCliente": "Carlos Silva"}. Pergunte uma coisa de cada vez.`
-    );
-    
-    const initialPrompt = "Olá! Para agendar, qual serviço você gostaria?";
-    const response = await deepseekService.processMessage(msg.from, initialPrompt);
-    await whatsappService.sendWithTyping(msg.from, response);
-    // A lógica de parsear o JSON e criar o agendamento agora está em WhatsAppService.handleWithAI
+    await whatsappService.sendWithTyping(msg.from, firstQuestion);
   },
 
   /**
@@ -70,7 +79,6 @@ const createHandlers = (whatsappService, deepseekService, mongoService) => ({
       'system',
       'O usuário deseja cancelar um agendamento. A próxima mensagem dele conterá os detalhes. Após receber, confirme o cancelamento (simulado) e pergunte se pode ajudar com mais algo.'
     );
-    // A próxima mensagem do usuário será pega pelo handleWithAI em whatsapp.js
   },
 
   /**
@@ -84,9 +92,6 @@ const createHandlers = (whatsappService, deepseekService, mongoService) => ({
       "1. Data e horário atual do agendamento\n" +
       "2. Nova data e horário desejados"
     );
-    // Se for usar IA para esta jornada, adicione um system prompt similar aos outros.
-    // Por enquanto, apenas envia a mensagem informativa.
-    // Para MVP, pode ser suficiente, ou pode-se adicionar um system prompt para a IA:
     deepseekService.addToConversation(
       msg.from,
       'system',
@@ -100,13 +105,15 @@ const createHandlers = (whatsappService, deepseekService, mongoService) => ({
   async handleViewServices(msg) {
     log(`Usuário ${msg.from.split('@')[0]} solicitou lista de serviços`, 'info');
     
-    const servicosLista = config.appInfo.servicosRealizados
-      .map(servico => `- ${servico}`)
-      .join('\n');
+    // config.appInfo.servicosRealizados contains normalized names
+    const servicosLista = config.appInfo.servicosRealizados.length > 0
+      ? config.appInfo.servicosRealizados.map(servico => `- ${servico}`).join('\n')
+      : 'Nenhum serviço configurado no momento.';
       
+    // The message will refer to option '1' for scheduling as per the renumbered menu
     await whatsappService.sendWithTyping(
       msg.from, 
-      `*Serviços Oferecidos*\n\n${servicosLista}\n\nPara agendar um destes serviços, selecione a opção 2 no menu principal.`
+      `*Serviços Oferecidos*\n\n${servicosLista}\n\nPara agendar um destes serviços, selecione a opção 1 ("Agendar horario") no menu principal.`
     );
   },
 
@@ -117,19 +124,16 @@ const createHandlers = (whatsappService, deepseekService, mongoService) => ({
     const senderNumber = msg.from.split('@')[0];
     
     switch (option) {
-      case '1':
-        await this.handleViewSchedule(msg);
-        break;
-      case '2':
+      case '1': // Now "Agendar horario"
         await this.handleCreateAppointment(msg);
         break;
-      case '3':
+      case '2': // Now "Cancelar horario"
         await this.handleCancelAppointment(msg);
         break;
-      case '4':
+      case '3': // Now "Alterar horario"
         await this.handleChangeAppointment(msg);
         break;
-      case '5':
+      case '4': // Now "Ver serviços oferecidos"
         await this.handleViewServices(msg);
         break;
       default:
