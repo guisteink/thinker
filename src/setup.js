@@ -1,6 +1,6 @@
 const readline = require('readline');
 const config = require('./config');
-const { log } = require('./utils');
+const { log, delay } = require('./utils'); // Import delay
 
 /**
  * Solicita e captura informações do usuário pelo terminal
@@ -14,8 +14,13 @@ async function setupConfig() {
   const question = (query) => new Promise(resolve => rl.question(query, resolve));
 
   try {
+    // Add a small delay to allow initial async logs to settle
+    // Adjust the delay (e.g., 500 milliseconds) if needed
+    await delay(500); 
+
     // Solicitar nome da pessoa
-    const nome = await question(`Nome da pessoa que aparecerá na msg inicial: `);
+    // Prepending '\n' to ensure the question starts on a new line
+    const nome = await question(`\nNome da pessoa que aparecerá na msg inicial: `);
     if (nome) config.appInfo.nomePessoa = nome;
 
     // Solicitar chave PIX

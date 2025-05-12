@@ -57,8 +57,11 @@ class WhatsAppService {
   _buildMenuMessage() {
     const servicosLista = config.appInfo.servicosRealizados
       .map(servico => `- ${servico}`)
-      .join('\n');
+      .join('\n'); // Used for replacing {servicosLista} if it appears in options
     
+    // More robust replacement for {servicosRealizados} in the footer
+    const servicosParaFooter = config.appInfo.servicosRealizados.join(', ');
+
     let header = config.menuConfig.header
       .replace('{nomePessoa}', config.appInfo.nomePessoa);
       
@@ -66,13 +69,14 @@ class WhatsAppService {
       .map(([key, value]) => {
         let optionText = value
           .replace('{chavePix}', config.appInfo.chavePix)
-          .replace('{servicosLista}', servicosLista);
+          .replace('{servicosLista}', servicosLista); // If any option uses {servicosLista}
         return `  ${key}. ${optionText}`;
       })
       .join('\n');
     
     let footer = config.menuConfig.footer
-      .replace('{chavePix}', config.appInfo.chavePix);
+      .replace('{chavePix}', config.appInfo.chavePix)
+      .replace('{servicosRealizados}', servicosParaFooter); // Correctly replace in footer
       
     return "```\n" + `${header}\n\n${config.menuConfig.optionPrefix}\n${optionsText}\n\n${footer}` + "\n```";
   }

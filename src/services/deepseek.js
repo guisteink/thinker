@@ -6,11 +6,12 @@ const { log } = require('../utils');
  */
 class DeepSeekService {
   constructor(config) {
-    this.apiKey = config.deepseek.apiKey;
-    this.baseUrl = config.deepseek.baseUrl || 'https://api.deepseek.com/v1';
-    this.model = config.deepseek.model || 'deepseek-chat';
-    this.maxTokens = config.deepseek.maxTokens || 1000;
-    this.temperature = config.deepseek.temperature || 0.7;
+    this.config = config; // Store the passed config object
+    this.apiKey = this.config.deepseek.apiKey;
+    this.baseUrl = this.config.deepseek.baseUrl || 'https://api.deepseek.com/v1';
+    this.model = this.config.deepseek.model || 'deepseek-chat';
+    this.maxTokens = this.config.deepseek.maxTokens || 1000;
+    this.temperature = this.config.deepseek.temperature || 0.7;
     
     // Store conversation histories by user ID
     this.conversations = new Map();
@@ -37,11 +38,11 @@ class DeepSeekService {
       this.conversations.set(userId, [
         { 
           role: 'system', 
-          content: `Você é um assistente virtual para ${config.appInfo.nomePessoa}.
+          content: `Você é um assistente virtual para ${this.config.appInfo.nomePessoa}.
                    Seu objetivo é conversar naturalmente com os clientes e ajudá-los com:
                    1. Agendamentos - Ver, criar, cancelar ou alterar horários na agenda
-                   2. Informações sobre serviços - ${config.appInfo.servicosRealizados.join(', ')}
-                   3. Informações sobre pagamentos - A chave PIX é ${config.appInfo.chavePix}
+                   2. Informações sobre serviços - ${this.config.appInfo.servicosRealizados.join(', ')}
+                   3. Informações sobre pagamentos - A chave PIX é ${this.config.appInfo.chavePix}
                    
                    Seja amigável, direto e profissional. Para agendamentos, colete:
                    - Qual serviço o cliente deseja

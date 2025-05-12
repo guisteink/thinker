@@ -21,7 +21,7 @@ module.exports = {
   },
   menuConfig: {
     // Configuração do cabeçalho e introdução da mensagem
-    header: process.env.MENU_HEADER || 'Ola, aqui é o {nomePessoa} e estou em horário de trabalho',
+    header: process.env.MENU_HEADER || 'Oi, aqui é o(a) {nomePessoa} e estou em horário de trabalho.\n',
     
     // Configuração das opções do menu
     optionPrefix: process.env.MENU_PREFIX || 'Digite o que deseja:',
@@ -30,16 +30,13 @@ module.exports = {
       '2': process.env.MENU_OPTION_2 || 'Agendar horario',
       '3': process.env.MENU_OPTION_3 || 'Cancelar horario',
       '4': process.env.MENU_OPTION_4 || 'Alterar horario',
-      '5': process.env.MENU_OPTION_6 || 'Consultar serviços'
     },
 
-    footer: process.env.MENU_FOOTER || 'Se deseja apenas consultar a chave pix: {chavePix}'
-  },
+    footer: process.env.MENU_FOOTER || 'Estou realizando os seguintes servicos {servicosRealizados}\nChave pix: {chavePix}'
+  }, 
   mongodb: {
-    uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/thinker_db', // Altere 'thinker_db' para o nome do seu banco
+    uri: process.env.MONGODB_URI || 'mongodb+srv://admin:admin@cluster0.j4mupkt.mongodb.net/',
     options: {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
       // Outras opções do Mongoose podem ser adicionadas aqui
     }
   },

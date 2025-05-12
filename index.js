@@ -13,9 +13,10 @@ async function startApp() {
     await setupConfig();
 
     // A conexão com o MongoDB é iniciada quando mongoService é importado e instanciado.
-    log('Serviço MongoDB inicializado e tentando conectar...');
-    await mongoService.connect();
-    log('MongoDB conectado com sucesso!', 'info');
+    // A linha abaixo deve ser removida, pois a conexão já é tentada no construtor de MongoService.
+    // log('Serviço MongoDB inicializado e tentando conectar...'); // Log opcional, pode ser mantido se desejar
+    // await mongoService.connect(); // REMOVE THIS LINE
+    // O log de "MongoDB conectado com sucesso!" virá do próprio MongoService se a conexão for bem-sucedida.
     
     // Inicializar o WhatsApp e aguardar sua conclusão
     log('WhatsApp client initializing...');

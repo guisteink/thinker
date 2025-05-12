@@ -28,7 +28,7 @@ echo  =                                                             =
 echo  ===============================================================
 echo.
 
-timeout /t 10
+timeout /t 3
 
 :: Check if Node.js is installed
 where node >nul 2>&1
