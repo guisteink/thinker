@@ -1,6 +1,10 @@
 const { sendMessageWithTyping } = require('../utils/messageUtils');
 const { log } = require('../utils/log');
+// force Portuguese locale
 const moment = require('moment-timezone');
+require('moment/locale/pt-br');
+moment.locale('pt-br');
+
 const mongoService = require('../services/mongoService'); // Import mongoService
 
 const SERVICE_DURATION_MINUTES = 30; // All appointments are 30 minutes
@@ -16,43 +20,53 @@ async function handleDayChoice(client, msg, chat, userName, userFrom, messageBod
         return;
     }
 
-    // If we don't have a list of days presented to the user yet, generate and show them.
+    // If we are at the stage to present days to the user
     if (currentState.step === 'awaiting_day_choice') {
         const today = moment().tz('America/Sao_Paulo');
         const availableDays = [];
-        let count = 0;
-        let currentDay = today.clone();
+        let key = 1;
 
-        // Find the next 5 working days (Mon-Fri) for Gui
-        while (count < 5) {
-            const dayOfWeek = currentDay.day(); // 0 (Sun) to 6 (Sat)
-            // Gui works Mon (1) to Fri (5)
-            if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+        let start, end;
+        if (today.day() >= 1 && today.day() <= 4) {
+            start = today.clone().add(1, 'day');
+            end = today.clone().day(5);
+        } else {
+            start = today.clone().add(1, 'week').startOf('isoWeek');
+            end = start.clone().day(5);
+        }
+
+        for (
+            let d = start.clone();
+            d.isSameOrBefore(end, 'day');
+            d.add(1, 'day')
+        ) {
+            if (d.isoWeekday() <= 5) {
+                // strip "-feira"
+                const raw = d.format('dddd');           // "quarta-feira"
+                const day = raw.split('-')[0];          // "quarta"
                 availableDays.push({
-                    key: (count + 1).toString(),
-                    name: currentDay.format('dddd').toLowerCase(), // e.g., "segunda-feira" -> "segunda"
-                    dateString: currentDay.format('YYYY-MM-DD'),
-                    displayFormat: currentDay.format('dddd (DD/MM)') // For user display
+                    key: String(key++),
+                    name: day,                            // "quarta"
+                    dateString: d.format('YYYY-MM-DD'),
+                    displayFormat: `${day.charAt(0).toUpperCase() + day.slice(1)} (${d.format('DD/MM')})`
                 });
-                count++;
             }
-            currentDay.add(1, 'day');
         }
 
         if (availableDays.length === 0) {
-            log(`No upcoming working days found for ${ATTENDANT_NAME} for service ${serviceName}. User: ${userFrom}`, 'warn');
-            await sendMessageWithTyping(client, userFrom, `Desculpe, não há dias disponíveis para agendamento no momento para ${serviceName}. Por favor, tente mais tarde ou fale conosco.`, chat);
-            stateManager.resetUserState(userFrom); // Or back to service choice
+            log(`No upcoming working days found based on new logic for ${ATTENDANT_NAME} for service ${serviceName}. User: ${userFrom}`, 'warn');
+            await sendMessageWithTyping(client, userFrom, `Desculpe, não há dias disponíveis para agendamento no momento para ${serviceName} com ${ATTENDANT_NAME}. Por favor, tente mais tarde.`, chat);
+            stateManager.resetUserState(userFrom);
             return;
         }
 
         currentState.data.selectableDays = availableDays;
-        currentState.step = 'awaiting_day_selection_from_list'; // New step
+        currentState.step = 'awaiting_day_selection_from_list';
         stateManager.setUserState(userFrom, currentState);
 
         let dayMessage = `Ótimo! Para ${serviceName}, temos os seguintes dias disponíveis:\n`;
         availableDays.forEach(day => {
-            dayMessage += `\n${day.key}. ${day.name.charAt(0).toUpperCase() + day.name.slice(1)}`; // Capitalize day name
+            dayMessage += `\n${day.key}. ${day.name.charAt(0).toUpperCase() + day.name.slice(1)}`;
         });
         dayMessage += "\n\nPor favor, digite o número do dia desejado:";
         await sendMessageWithTyping(client, userFrom, dayMessage, chat);
@@ -74,7 +88,6 @@ async function handleDayChoice(client, msg, chat, userName, userFrom, messageBod
         if (chosenDayObject) {
             currentState.data.chosenFullDateString = chosenDayObject.dateString;
             currentState.data.chosenDayName = chosenDayObject.name;
-            // chosenDayKey is already the user's input, can store if needed: currentState.data.chosenDayKey = chosenDayKey;
 
             log(`User ${userFrom} chose day: ${chosenDayObject.name} (${chosenDayObject.dateString}) for service ${serviceName}`, 'info');
 
@@ -86,18 +99,18 @@ async function handleDayChoice(client, msg, chat, userName, userFrom, messageBod
 
             if (!availableTimes || availableTimes.length === 0) {
                 await sendMessageWithTyping(client, userFrom, `Desculpe, não há horários disponíveis para ${chosenDayObject.name} (${moment(chosenDayObject.dateString).format('DD/MM/YYYY')}) para o serviço ${serviceName}. Por favor, tente outro dia.`, chat);
-                // Go back to presenting days
-                currentState.step = 'awaiting_day_choice'; // This will re-trigger day listing
-                delete currentState.data.selectableDays; // Clear old list
+                currentState.step = 'awaiting_day_choice';
+                delete currentState.data.selectableDays;
                 delete currentState.data.chosenFullDateString;
                 delete currentState.data.chosenDayName;
                 stateManager.setUserState(userFrom, currentState);
-                // Re-call handleDayChoice to show days again
-                await handleDayChoice(client, msg, chat, userName, userFrom, '', currentState, stateManager, appData); // Pass empty messageBody
+                // To re-trigger day listing, the next message from user will go to 'awaiting_day_choice'
+                // Or call handleDayChoice directly:
+                // await handleDayChoice(client, msg, chat, userName, userFrom, '', currentState, stateManager, appData);
                 return;
             }
 
-            currentState.data.dbAvailableTimes = availableTimes; // Store for timeChoiceHandler
+            currentState.data.dbAvailableTimes = availableTimes;
             currentState.step = 'awaiting_time_choice';
             stateManager.setUserState(userFrom, currentState);
 
@@ -115,10 +128,8 @@ async function handleDayChoice(client, msg, chat, userName, userFrom, messageBod
                 replyMessage += `\n${day.key}. ${day.name.charAt(0).toUpperCase() + day.name.slice(1)}`;
             });
             await sendMessageWithTyping(client, userFrom, replyMessage, chat);
-            // Keep current step: 'awaiting_day_selection_from_list'
         }
     } else {
-        // Should not happen if routing is correct
         log(`User ${userFrom} in unexpected step '${currentState.step}' in handleDayChoice. Resetting.`, 'error');
         await sendMessageWithTyping(client, userFrom, "Algo deu errado. Vamos tentar novamente. Digite 'menu'.", chat);
         stateManager.resetUserState(userFrom);
