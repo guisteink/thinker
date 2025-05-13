@@ -1,0 +1,28 @@
+const { sendMessageWithTyping } = require('../utils/messageUtils');
+const { log } = require('../utils/log'); // Import log
+
+async function handleInitialChoice(client, msg, chat, userName, userFrom, messageBody, currentState, stateManager, appData) {
+    log(`handleInitialChoice: User ${userFrom} chose "${messageBody}"`, 'info');
+    if (messageBody === '1') {
+        currentState.step = 'awaiting_service_choice';
+        stateManager.setUserState(userFrom, currentState);
+        let serviceMessage = "Para agendar, digite o número abaixo. Qual serviço você gostaria? Seguem os serviços realizados:\n";
+        for (const key in appData.services) { // appData.services agora tem chaves "1", "2"
+            serviceMessage += `\n${key}. ${appData.services[key]}`;
+        }
+        await sendMessageWithTyping(client, userFrom, serviceMessage, chat);
+        log(`handleInitialChoice: User ${userFrom} proceeds to service choice.`, 'debug');
+    } else if (messageBody === '2') {
+        await sendMessageWithTyping(client, userFrom, "Entendido. Para falar pessoalmente, por favor, aguarde. Em breve um de nossos atendentes entrará em contato.", chat);
+        stateManager.deleteUserState(userFrom); // Reset state, end of this flow
+        log(`handleInitialChoice: User ${userFrom} chose to speak personally.`, 'debug');
+    } else {
+        log(`handleInitialChoice: User ${userFrom} provided invalid initial option "${messageBody}".`, 'warn');
+        const welcomeMessage = `Opção inválida. Olá ${userName}, aqui é o Gui.\nO que deseja?\n\n1. Agendar horário\n2. Falar pessoalmente`;
+        await sendMessageWithTyping(client, userFrom, welcomeMessage, chat);
+        currentState.step = 'awaiting_initial_choice';
+        stateManager.setUserState(userFrom, currentState);
+    }
+}
+
+module.exports = { handleInitialChoice };

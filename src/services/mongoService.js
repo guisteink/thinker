@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
 const config = require('../config');
-const { log } = require('../utils');
+const { log } = require('../utils/log');
 const Appointment = require('../models/Appointment'); // Importa o modelo
+const moment = require('moment-timezone'); // Importar moment aqui para o log
 
 class MongoService {
   constructor() {
@@ -38,10 +39,11 @@ class MongoService {
     try {
       const newAppointment = new this.Appointment(appointmentData);
       await newAppointment.save();
-      log(`Agendamento criado para ${appointmentData.nomeCliente} em ${appointmentData.dataAgendamento}`, 'info');
+      // Ajuste no log para usar os campos corretos do modelo
+      log(`Agendamento criado para ${appointmentData.nomeCliente} em ${moment(appointmentData.data).format('YYYY-MM-DD')} às ${appointmentData.hora}`, 'info');
       return newAppointment.toObject(); // Retorna um objeto simples
     } catch (error) {
-      log(`Erro ao criar agendamento: ${error.message}`, 'error');
+      log(`Erro ao criar agendamento: ${error.message} - Data: ${JSON.stringify(appointmentData)}`, 'error');
       throw error; // Re-throw para ser tratado pelo chamador
     }
   }
@@ -200,4 +202,5 @@ class MongoService {
 }
 
 // Exporta uma instância singleton do serviço
-module.exports = new MongoService();
+const mongoInstance = new MongoService();
+module.exports = mongoInstance;
