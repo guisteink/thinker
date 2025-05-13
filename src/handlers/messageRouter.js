@@ -1,10 +1,9 @@
-// filepath: c:\Users\guilherme\Desktop\123\src\handlers\messageRouter.js
 const { sendMessageWithTyping } = require('../utils/messageUtils');
 const {
     handleInitialChoice,
     handleServiceChoice,
-    handleDayChoice,    // NOVO
-    handleTimeChoice,   // NOVO
+    handleDayChoice,   
+    handleTimeChoice,   
     handleDefault
 } = require('./index');
 const { log } = require('../utils/log');
@@ -53,11 +52,11 @@ async function routeMessage(client, msg, chat, userName, userFrom, messageBody, 
                 log(`Executing handleServiceChoice for ${userFrom}`, 'debug');
                 await handleServiceChoice(...handlerArgs);
                 break;
-            case 'awaiting_day_choice': // NOVO ESTADO
+            case 'awaiting_day_choice':
                 log(`Executing handleDayChoice for ${userFrom}`, 'debug');
                 await handleDayChoice(...handlerArgs);
                 break;
-            case 'awaiting_time_choice': // NOVO ESTADO
+            case 'awaiting_time_choice': 
                 log(`Executing handleTimeChoice for ${userFrom}`, 'debug');
                 await handleTimeChoice(...handlerArgs);
                 break;

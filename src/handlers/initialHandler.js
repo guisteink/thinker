@@ -1,5 +1,5 @@
 const { sendMessageWithTyping } = require('../utils/messageUtils');
-const { log } = require('../utils/log'); // Import log
+const { log } = require('../utils/log'); 
 
 async function handleInitialChoice(client, msg, chat, userName, userFrom, messageBody, currentState, stateManager, appData) {
     log(`handleInitialChoice: User ${userFrom} chose "${messageBody}"`, 'info');
@@ -7,14 +7,14 @@ async function handleInitialChoice(client, msg, chat, userName, userFrom, messag
         currentState.step = 'awaiting_service_choice';
         stateManager.setUserState(userFrom, currentState);
         let serviceMessage = "Para agendar, digite o número abaixo. Qual serviço você gostaria? Seguem os serviços realizados:\n";
-        for (const key in appData.services) { // appData.services agora tem chaves "1", "2"
+        for (const key in appData.services) { 
             serviceMessage += `\n${key}. ${appData.services[key]}`;
         }
         await sendMessageWithTyping(client, userFrom, serviceMessage, chat);
         log(`handleInitialChoice: User ${userFrom} proceeds to service choice.`, 'debug');
     } else if (messageBody === '2') {
         await sendMessageWithTyping(client, userFrom, "Entendido. Para falar pessoalmente, por favor, aguarde. Em breve um de nossos atendentes entrará em contato.", chat);
-        stateManager.deleteUserState(userFrom); // Reset state, end of this flow
+        stateManager.deleteUserState(userFrom); 
         log(`handleInitialChoice: User ${userFrom} chose to speak personally.`, 'debug');
     } else {
         log(`handleInitialChoice: User ${userFrom} provided invalid initial option "${messageBody}".`, 'warn');

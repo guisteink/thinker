@@ -1,10 +1,10 @@
-const { log } = require('./utils/log'); // Import log
+const { log } = require('./utils/log'); 
 
 const userStates = new Map();
 
 function getUserState(userFrom) {
     const state = userStates.get(userFrom) || { step: 'initial', data: {} };
-    // log(`Retrieved state for ${userFrom}: ${JSON.stringify(state)}`, 'debug');
+    log(`Retrieved state for ${userFrom}: ${JSON.stringify(state)}`, 'debug');
     return state;
 }
 

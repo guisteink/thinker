@@ -2,7 +2,7 @@ const whatsappService = require('./services/whatsappService');
 const messageRouter = require('./handlers/messageRouter');
 const stateManager = require('./stateManager');
 const { services, mockAvailability } = require('./config/mockData');
-const { log } = require('./utils/log'); // Import log
+const { log } = require('./utils/log'); 
 
 async function start() {
     log('Application starting...', 'info');
@@ -12,7 +12,6 @@ async function start() {
 
         whatsappService.onMessage(async (msg) => {
             if (!msg.from.endsWith('@c.us') || msg.isStatus) {
-                // log(`Ignoring status message or group message from: ${msg.from}`, 'debug'); // Optional: for very verbose logging
                 return;
             }
 

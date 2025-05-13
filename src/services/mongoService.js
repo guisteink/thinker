@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
 const config = require('../config');
 const { log } = require('../utils/log');
-const Appointment = require('../models/Appointment'); // Importa o modelo
-const moment = require('moment-timezone'); // Importar moment aqui para o log
+const Appointment = require('../models/Appointment'); 
+const moment = require('moment-timezone'); 
 
 class MongoService {
   constructor() {
@@ -17,7 +17,7 @@ class MongoService {
       })
       .catch(err => {
         log(`Erro ao conectar ao MongoDB: ${err.message}`, 'error');
-        // Considere um mecanismo de retry ou encerrar a aplicação se a conexão for crítica
+        // Considerar um mecanismo de retry 
         process.exit(1);
       });
 
@@ -39,9 +39,8 @@ class MongoService {
     try {
       const newAppointment = new this.Appointment(appointmentData);
       await newAppointment.save();
-      // Ajuste no log para usar os campos corretos do modelo
       log(`Agendamento criado para ${appointmentData.nomeCliente} em ${moment(appointmentData.data).format('YYYY-MM-DD')} às ${appointmentData.hora}`, 'info');
-      return newAppointment.toObject(); // Retorna um objeto simples
+      return newAppointment.toObject(); 
     } catch (error) {
       log(`Erro ao criar agendamento: ${error.message} - Data: ${JSON.stringify(appointmentData)}`, 'error');
       throw error; // Re-throw para ser tratado pelo chamador
@@ -55,7 +54,7 @@ class MongoService {
    */
   async findAppointments(filter = {}) {
     try {
-      const appointments = await this.Appointment.find(filter).lean(); // .lean() para objetos simples
+      const appointments = await this.Appointment.find(filter).lean(); 
       log(`Busca de agendamentos com filtro ${JSON.stringify(filter)} retornou ${appointments.length} resultados.`, 'info');
       return appointments;
     } catch (error) {
@@ -189,7 +188,7 @@ class MongoService {
     }
   }
 
-  _timeStringToMinutes(timeStr) { // "HH:MM"
+  _timeStringToMinutes(timeStr) { 
     const [hours, minutes] = timeStr.split(':').map(Number);
     return hours * 60 + minutes;
   }
@@ -201,6 +200,5 @@ class MongoService {
   }
 }
 
-// Exporta uma instância singleton do serviço
 const mongoInstance = new MongoService();
 module.exports = mongoInstance;

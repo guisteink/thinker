@@ -1,7 +1,7 @@
 const { handleInitialChoice } = require('./initialHandler');
 const { handleServiceChoice } = require('./serviceChoiceHandler');
-const { handleDayChoice } = require('./dayChoiceHandler'); // Correto
-const { handleTimeChoice } = require('./timeChoiceHandler'); // Correto
+const { handleDayChoice } = require('./dayChoiceHandler'); 
+const { handleTimeChoice } = require('./timeChoiceHandler'); 
 const { handleDefault } = require('./defaultHandler');
 
 module.exports = {
