@@ -2,6 +2,7 @@ const { sendMessageWithTyping } = require('../utils/messageUtils');
 const mongoService = require('../services/mongoService');
 const { log } = require('../utils/log');
 const moment = require('moment-timezone');
+const { appInfo, attendant } = require('../config');
 
 async function handleTimeChoice(client, msg, chat, userName, userFrom, messageBody, currentState, stateManager, appData) {
     const timeOptionIndex = parseInt(messageBody, 10) - 1;
@@ -30,7 +31,7 @@ async function handleTimeChoice(client, msg, chat, userName, userFrom, messageBo
             numeroContato: userFrom,
             servicoAgendado: serviceName,
             data: appointmentDateTime,
-            nomeAtendente: 'gui', // Explicitly set, though schema has default
+            nomeAtendente: appInfo.nomePessoa, // Explicitly set, though schema has default
         };
 
         try {
@@ -60,7 +61,7 @@ async function handleTimeChoice(client, msg, chat, userName, userFrom, messageBo
 
             await mongoService.createAppointment(appointmentData);
             await sendMessageWithTyping(client, userFrom,
-                `Agendamento confirmado para ${serviceName} no dia ${moment(appointmentDateTime).tz('America/Sao_Paulo').format('DD/MM/YYYY')} às ${moment(appointmentDateTime).tz('America/Sao_Paulo').format('HH:mm')} com Gui. Obrigado, ${userName}!`,
+                `Agendamento confirmado: ${serviceName} em ${moment(appointmentDateTime).format('DD/MM/YYYY [às] HH:mm')} com ${appInfo.nomePessoa}. Obrigado, ${userName}!`,
                 chat
             );
             log(`Appointment created for ${userFrom}: ${JSON.stringify(appointmentData)}`, 'info');

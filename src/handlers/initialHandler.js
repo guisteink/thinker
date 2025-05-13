@@ -1,5 +1,6 @@
 const { sendMessageWithTyping } = require('../utils/messageUtils');
 const { log } = require('../utils/log'); 
+const { appInfo } = require('../config');
 
 async function handleInitialChoice(client, msg, chat, userName, userFrom, messageBody, currentState, stateManager, appData) {
     log(`handleInitialChoice: User ${userFrom} chose "${messageBody}"`, 'info');
@@ -18,7 +19,7 @@ async function handleInitialChoice(client, msg, chat, userName, userFrom, messag
         log(`handleInitialChoice: User ${userFrom} chose to speak personally.`, 'debug');
     } else {
         log(`handleInitialChoice: User ${userFrom} provided invalid initial option "${messageBody}".`, 'warn');
-        const welcomeMessage = `Opção inválida. Olá ${userName}, aqui é o Gui.\nO que deseja?\n\n1. Agendar horário\n2. Falar pessoalmente`;
+        const welcomeMessage = `Opção inválida. Olá ${userName}, aqui é o ${appInfo.nomePessoa}.\nO que deseja?\n\n1. Agendar horário\n2. Falar pessoalmente`;
         await sendMessageWithTyping(client, userFrom, welcomeMessage, chat);
         currentState.step = 'awaiting_initial_choice';
         stateManager.setUserState(userFrom, currentState);

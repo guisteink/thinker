@@ -1,14 +1,14 @@
 const { sendMessageWithTyping } = require('../utils/messageUtils');
 const { log } = require('../utils/log');
-// force Portuguese locale
 const moment = require('moment-timezone');
 require('moment/locale/pt-br');
 moment.locale('pt-br');
 
 const mongoService = require('../services/mongoService'); // Import mongoService
+const { appInfo } = require('../config');
 
-const SERVICE_DURATION_MINUTES = 30; // All appointments are 30 minutes
-const ATTENDANT_NAME = 'gui'; // Default attendant
+const SERVICE_DURATION_MINUTES = 30; // ou também puxar se for configurável
+const ATTENDANT_NAME = appInfo.nomePessoa;
 
 async function handleDayChoice(client, msg, chat, userName, userFrom, messageBody, currentState, stateManager, appData) {
     const serviceName = currentState.data.serviceChosen;
@@ -55,7 +55,7 @@ async function handleDayChoice(client, msg, chat, userName, userFrom, messageBod
 
         if (availableDays.length === 0) {
             log(`No upcoming working days found based on new logic for ${ATTENDANT_NAME} for service ${serviceName}. User: ${userFrom}`, 'warn');
-            await sendMessageWithTyping(client, userFrom, `Desculpe, não há dias disponíveis para agendamento no momento para ${serviceName} com ${ATTENDANT_NAME}. Por favor, tente mais tarde.`, chat);
+            await sendMessageWithTyping(client, userFrom, `Desculpe, não há dias disponíveis para ${serviceName} com ${ATTENDANT_NAME}. Por favor, tente mais tarde.`, chat);
             stateManager.resetUserState(userFrom);
             return;
         }

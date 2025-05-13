@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { appInfo } = require('../config');
 
 const appointmentSchema = new mongoose.Schema({
     nomeCliente: {
@@ -20,10 +21,10 @@ const appointmentSchema = new mongoose.Schema({
         type: Date, // Armazena a data e hora completas do agendamento
         required: [true, 'A data e hora do agendamento são obrigatórias.']
     },
-    nomeAtendente: { // Novo campo
+    nomeAtendente: { 
         type: String,
         required: [true, 'O nome do atendente é obrigatório.'],
-        default: 'gui' // Valor padrão
+        default: appInfo.nomePessoa
     },
     clienteRecorrente: {
         type: Boolean,
@@ -60,7 +61,7 @@ appointmentSchema.statics.findAppointmentsInRange = async function(dayStart, day
             $gte: dayStart,
             $lte: dayEnd
         },
-        nomeAtendente: 'gui' // Filter by attendant
+        nomeAtendente: appInfo.nomePessoa // Filter by attendant
     }).sort({ data: 1 }).lean();
     return existingAppointments;
 };

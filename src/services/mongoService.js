@@ -151,7 +151,8 @@ class MongoService {
     duracaoServicoMinutos
   ) {
     try {
-      const timezone = 'America/Sao_Paulo'; // Consistent timezone
+      const { workSchedule } = config;
+      const timezone = 'America/Sao_Paulo';
       const targetDateMoment = moment.tz(dataAgendamento, 'YYYY-MM-DD', timezone);
 
       if (!targetDateMoment.isValid()) {
@@ -159,8 +160,6 @@ class MongoService {
         return [];
       }
 
-      // Define working hours for 'gui'
-      // Monday to Friday: 08:00-12:00 and 13:00-20:00
       const dayOfWeek = targetDateMoment.day(); // 0 (Sunday) to 6 (Saturday)
       if (dayOfWeek === 0 || dayOfWeek === 6) { // Sunday or Saturday
         log(`Atendente ${nomeAtendente} não trabalha aos fins de semana. Data: ${dataAgendamento}`, 'info');
@@ -168,8 +167,8 @@ class MongoService {
       }
 
       const workingHours = [
-        { start: "08:00", end: "12:00" },
-        { start: "13:00", end: "20:00" }
+        { start: workSchedule.horaInicio, end: workSchedule.inicioAlmoco },
+        { start: workSchedule.fimAlmoco, end: workSchedule.horaFim }
       ];
 
       const dayStartForQuery = targetDateMoment.clone().startOf('day').toDate();
@@ -185,7 +184,6 @@ class MongoService {
 
       const bookedSlots = existingAppointments.map(app => {
         const start = moment(app.data).tz(timezone);
-        // Assuming all appointments (existing and new) are 30 minutes as per requirement
         const end = start.clone().add(duracaoServicoMinutos, 'minutes');
         return { start, end };
       });
@@ -211,8 +209,6 @@ class MongoService {
 
           let isSlotFree = true;
           for (const booked of bookedSlots) {
-            // Check for overlap:
-            // (potentialSlotStart < booked.end) AND (potentialSlotEnd > booked.start)
             if (potentialSlotStart.isBefore(booked.end) && potentialSlotEnd.isAfter(booked.start)) {
               isSlotFree = false;
               break;
@@ -222,7 +218,7 @@ class MongoService {
           if (isSlotFree) {
             availableSlots.push(potentialSlotStart.format('HH:mm'));
           }
-          currentSlotStartMoment.add(30, 'minutes'); // Always 30 min intervals for generating potential slots
+          currentSlotStartMoment.add(30, 'minutes');
         }
       }
 
@@ -231,8 +227,7 @@ class MongoService {
 
     } catch (error) {
       log(`Erro ao buscar horários disponíveis para ${nomeAtendente} em ${dataAgendamento}: ${error.message} ${error.stack}`, 'error');
-      // throw error; // Decide if you want to throw or return empty on error
-      return []; // Return empty on error to prevent flow breakage, error is logged
+      return [];
     }
   }
 

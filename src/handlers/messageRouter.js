@@ -7,6 +7,7 @@ const {
     handleDefault
 } = require('./index'); // Assuming index.js exports handleTimeChoice
 const { log } = require('../utils/log');
+const { appInfo } = require('../config');
 
 async function routeMessage(client, msg, chat, userName, userFrom, messageBody, stateManager, appData) {
     log(`msg: ${JSON.stringify(msg)}`, 'info');
@@ -20,7 +21,7 @@ async function routeMessage(client, msg, chat, userName, userFrom, messageBody, 
     if (isMenuCommand || isCancelCommand) {
         log(`Explicit 'menu' or 'cancelar' command received from ${userFrom}. Resetting state and showing menu.`, 'info');
         currentState = stateManager.resetUserState(userFrom);
-        const welcomeMessage = `Olá ${userName}, aqui é o Gui e estou em horário de trabalho.\nO que deseja?\n\n1. Agendar horário\n2. Falar pessoalmente`;
+        const welcomeMessage = `Olá ${userName}, aqui é o ${appInfo.nomePessoa} e estou em horário de trabalho.\nO que deseja?\n\n1. Agendar horário\n2. Falar pessoalmente`;
         await sendMessageWithTyping(client, userFrom, welcomeMessage, chat);
         return;
     }
