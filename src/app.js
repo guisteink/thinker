@@ -1,64 +1,61 @@
-const whatsappService = require('./services/whatsappService');
-const messageRouter   = require('./handlers/messageRouter');
-const stateManager    = require('./stateManager');
-const { appInfo }     = require('./config');
-const { log }         = require('./utils/log');
+const { initializeClient, getClient, onMessage, destroyClient } = require('./services/whatsappService');
+const { routeMessage } = require('./handlers/messageRouter');
+const stateManager = require('./stateManager');
+const { appInfo } = require('./config');
+const { log } = require('./utils/log');
+// p-limit is ESM-only; require it via its default export
+const pLimit = require('p-limit').default;
 
+const CONCURRENCY = Number(process.env.CONCURRENCY_LIMIT) || 10;
+const limit = pLimit(CONCURRENCY);
+
+// Pré-monta mapa de serviços
 const services = Object.fromEntries(
-  appInfo.servicosRealizados.map((svc, idx) => [idx + 1, svc])
+  appInfo.servicosRealizados.map((s, i) => [i+1, s])
 );
-
-// Dados adicionais passados ao roteador
-const appData = { services, mockAvailability: {} };
+const appData = { services };
 
 async function handleIncomingMessage(client, msg) {
-  // Ignora status e mensagens não-humanas
   if (!msg.from.endsWith('@c.us') || msg.isStatus) return;
 
-  const chat    = await msg.getChat();
-  const contact = await msg.getContact();
-  const userName    = contact.pushname?.split(' ')[0] || 'cliente';
-  const userFrom    = msg.from;
-  const messageBody = msg.body.trim().toLowerCase();
+  // Garante máximo de HANDLERS simultâneos
+  await limit(async () => {
+    const chat    = await msg.getChat();
+    const contact = await msg.getContact();
+    const userName    = contact.pushname?.split(' ')[0] || 'cliente';
+    const userFrom    = msg.from;
+    const messageBody = msg.body.trim().toLowerCase();
 
-  log(`Received message from ${userName} (${userFrom}): "${msg.body}"`, 'info');
+    log(`Received from ${userName} (${userFrom}): "${msg.body}"`, 'info');
+    await routeMessage(client, msg, chat, userName, userFrom, messageBody, stateManager, appData);
+  });
+}
 
-  await messageRouter.routeMessage(
-    client,
-    msg,
-    chat,
-    userName,
-    userFrom,
-    messageBody,
-    stateManager,
-    appData
-  );
+function setupGracefulShutdown() {
+  const shutdown = async signal => {
+    log(`${signal} received – shutting down...`, 'warn');
+    await destroyClient();
+    process.exit(0);
+  };
+  ['SIGINT','SIGTERM','SIGQUIT']
+    .forEach(s => process.once(s, () => shutdown(s)));
 }
 
 async function start() {
   log('Application starting...', 'info');
-
   try {
-    await whatsappService.initializeClient();
-    const client = whatsappService.getClient();
-    log('WhatsApp client initialized successfully.', 'info');
+    await initializeClient();
+    const client = getClient();
+    log('WhatsApp client ready.', 'info');
 
-    whatsappService.onMessage(msg => handleIncomingMessage(client, msg));
-    log('Application started. WhatsApp client is listening for messages.', 'info');
-  } catch (error) {
-    log(`Failed to start application: ${error.message}`, 'error');
+    onMessage(msg => handleIncomingMessage(client, msg));
+    log('Listening for incoming messages.', 'info');
+    setupGracefulShutdown();
+
+  } catch (err) {
+    log(`Startup failed: ${err.message}`, 'error');
     process.exit(1);
   }
-
-  // Captura SIGINT, SIGTERM e SIGQUIT para shutdown gracioso
-  ['SIGINT','SIGTERM','SIGQUIT'].forEach(signal =>
-    process.on(signal, async () => {
-      log(`\n${signal} received, shutting down...`, 'warn');
-      await whatsappService.destroyClient();
-      log('Application shut down gracefully.', 'info');
-      process.exit(0);
-    })
-  );
 }
 
 module.exports = { start };
