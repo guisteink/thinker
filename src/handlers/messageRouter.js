@@ -52,11 +52,12 @@ async function routeMessage(client, msg, chat, userName, userFrom, messageBody, 
                 log(`Executing handleServiceChoice for ${userFrom}`, 'debug');
                 await handleServiceChoice(...handlerArgs);
                 break;
-            case 'awaiting_day_choice':
-                log(`Executing handleDayChoice for ${userFrom}`, 'debug');
+            case 'awaiting_day_choice': // This will now initiate day listing
+            case 'awaiting_day_selection_from_list': // New state for when user picks a day number
+                log(`Executing handleDayChoice for ${userFrom} (state: ${currentState.step})`, 'debug');
                 await handleDayChoice(...handlerArgs);
                 break;
-            case 'awaiting_time_choice': // Ensure this case exists
+            case 'awaiting_time_choice':
                 log(`Executing handleTimeChoice for ${userFrom}`, 'debug');
                 await handleTimeChoice(...handlerArgs);
                 break;

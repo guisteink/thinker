@@ -139,23 +139,19 @@ class MongoService {
   }
 
   /**
-   * Verifica horários disponíveis para uma data específica.
+   * Verifica horários disponíveis para uma data específica, atendente e duração de serviço.
    * @param {string} dataAgendamento - Data no formato YYYY-MM-DD.
+   * @param {string} nomeAtendente - Nome do atendente (ex: "gui").
    * @param {number} duracaoServicoMinutos - Duração do serviço em minutos.
-   * @param {string} horarioFuncionamentoInicio - Ex: "09:00"
-   * @param {string} horarioFuncionamentoFim - Ex: "18:00"
-   * @param {number} intervaloMinimoSlots - Intervalo mínimo entre inícios de slots em minutos (ex: 15).
-   * @returns {Promise<Array<string>>} Lista de horários disponíveis (ex: ["09:00", "10:30"]).
+   * @returns {Promise<Array<string>>} Lista de horários disponíveis (ex: ["08:00", "08:30"]).
    */
   async getAvailableSlots(
-    dataAgendamento,
-    duracaoServicoMinutos,
-    horarioFuncionamentoInicio = "09:00",
-    horarioFuncionamentoFim = "18:00",
-    intervaloMinimoSlots = 15
+    dataAgendamento, // YYYY-MM-DD string
+    nomeAtendente,
+    duracaoServicoMinutos
   ) {
     try {
-      const timezone = 'America/Sao_Paulo';
+      const timezone = 'America/Sao_Paulo'; // Consistent timezone
       const targetDateMoment = moment.tz(dataAgendamento, 'YYYY-MM-DD', timezone);
 
       if (!targetDateMoment.isValid()) {
@@ -163,59 +159,80 @@ class MongoService {
         return [];
       }
 
-      const dayStart = targetDateMoment.clone().startOf('day').toDate();
-      const dayEnd = targetDateMoment.clone().endOf('day').toDate();
+      // Define working hours for 'gui'
+      // Monday to Friday: 08:00-12:00 and 13:00-20:00
+      const dayOfWeek = targetDateMoment.day(); // 0 (Sunday) to 6 (Saturday)
+      if (dayOfWeek === 0 || dayOfWeek === 6) { // Sunday or Saturday
+        log(`Atendente ${nomeAtendente} não trabalha aos fins de semana. Data: ${dataAgendamento}`, 'info');
+        return []; // Gui doesn't work on weekends
+      }
+
+      const workingHours = [
+        { start: "08:00", end: "12:00" },
+        { start: "13:00", end: "20:00" }
+      ];
+
+      const dayStartForQuery = targetDateMoment.clone().startOf('day').toDate();
+      const dayEndForQuery = targetDateMoment.clone().endOf('day').toDate();
 
       const existingAppointments = await this.Appointment.find({
         data: {
-          $gte: dayStart,
-          $lte: dayEnd
-        }
+          $gte: dayStartForQuery,
+          $lte: dayEndForQuery
+        },
+        nomeAtendente: nomeAtendente
       }).sort({ data: 1 }).lean();
 
+      const bookedSlots = existingAppointments.map(app => {
+        const start = moment(app.data).tz(timezone);
+        // Assuming all appointments (existing and new) are 30 minutes as per requirement
+        const end = start.clone().add(duracaoServicoMinutos, 'minutes');
+        return { start, end };
+      });
+
       const availableSlots = [];
-      const openingMoment = targetDateMoment.clone().set({
-        hour: parseInt(horarioFuncionamentoInicio.split(':')[0]),
-        minute: parseInt(horarioFuncionamentoInicio.split(':')[1]),
-        second: 0, millisecond: 0
-      });
-      const closingMoment = targetDateMoment.clone().set({
-        hour: parseInt(horarioFuncionamentoFim.split(':')[0]),
-        minute: parseInt(horarioFuncionamentoFim.split(':')[1]),
-        second: 0, millisecond: 0
-      });
 
-      let currentSlotStartMoment = openingMoment.clone();
+      for (const period of workingHours) {
+        let currentSlotStartMoment = targetDateMoment.clone().set({
+          hour: parseInt(period.start.split(':')[0]),
+          minute: parseInt(period.start.split(':')[1]),
+          second: 0, millisecond: 0
+        });
 
-      while (currentSlotStartMoment.clone().add(duracaoServicoMinutos, 'minutes').isSameOrBefore(closingMoment)) {
-        const potentialSlotStart = currentSlotStartMoment.clone();
-        const potentialSlotEnd = currentSlotStartMoment.clone().add(duracaoServicoMinutos, 'minutes');
+        const periodEndMoment = targetDateMoment.clone().set({
+          hour: parseInt(period.end.split(':')[0]),
+          minute: parseInt(period.end.split(':')[1]),
+          second: 0, millisecond: 0
+        });
 
-        let isSlotFree = true;
-        for (const app of existingAppointments) {
-          const appStartMoment = moment(app.data).tz(timezone);
-          const existingAppDuration = duracaoServicoMinutos;
-          const appEndMoment = appStartMoment.clone().add(existingAppDuration, 'minutes');
+        while (currentSlotStartMoment.clone().add(duracaoServicoMinutos, 'minutes').isSameOrBefore(periodEndMoment)) {
+          const potentialSlotStart = currentSlotStartMoment.clone();
+          const potentialSlotEnd = currentSlotStartMoment.clone().add(duracaoServicoMinutos, 'minutes');
 
-          if (potentialSlotStart.isBefore(appEndMoment) && potentialSlotEnd.isAfter(appStartMoment)) {
-            isSlotFree = false;
-            break;
+          let isSlotFree = true;
+          for (const booked of bookedSlots) {
+            // Check for overlap:
+            // (potentialSlotStart < booked.end) AND (potentialSlotEnd > booked.start)
+            if (potentialSlotStart.isBefore(booked.end) && potentialSlotEnd.isAfter(booked.start)) {
+              isSlotFree = false;
+              break;
+            }
           }
-        }
 
-        if (isSlotFree) {
-          availableSlots.push(potentialSlotStart.format('HH:mm'));
+          if (isSlotFree) {
+            availableSlots.push(potentialSlotStart.format('HH:mm'));
+          }
+          currentSlotStartMoment.add(30, 'minutes'); // Always 30 min intervals for generating potential slots
         }
-
-        currentSlotStartMoment.add(intervaloMinimoSlots, 'minutes');
       }
 
-      log(`Available slots for ${dataAgendamento} (duration ${duracaoServicoMinutos}min, interval ${intervaloMinimoSlots}min, TZ: ${timezone}): ${availableSlots.join(', ')}`, 'info');
+      log(`Available slots for ${nomeAtendente} on ${dataAgendamento} (duration ${duracaoServicoMinutos}min, TZ: ${timezone}): ${availableSlots.join(', ')}`, 'info');
       return availableSlots;
 
     } catch (error) {
-      log(`Erro ao buscar horários disponíveis para ${dataAgendamento}: ${error.message} ${error.stack}`, 'error');
-      throw error;
+      log(`Erro ao buscar horários disponíveis para ${nomeAtendente} em ${dataAgendamento}: ${error.message} ${error.stack}`, 'error');
+      // throw error; // Decide if you want to throw or return empty on error
+      return []; // Return empty on error to prevent flow breakage, error is logged
     }
   }
 

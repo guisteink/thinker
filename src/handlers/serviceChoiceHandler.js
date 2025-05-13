@@ -1,38 +1,39 @@
 const { sendMessageWithTyping } = require('../utils/messageUtils');
 const { log } = require('../utils/log');
+// Import handleDayChoice to call it directly after a service is chosen
+const { handleDayChoice } = require('./dayChoiceHandler');
 
 async function handleServiceChoice(client, msg, chat, userName, userFrom, messageBody, currentState, stateManager, appData) {
     const chosenServiceKey = messageBody;
+    const serviceName = appData.services[chosenServiceKey]; // Get service name from appData.services
 
-    if (appData.services[chosenServiceKey]) {
-        currentState.data.serviceChosen = appData.services[chosenServiceKey];
+    if (serviceName) {
+        log(`User ${userFrom} is attempting to choose service with key: ${chosenServiceKey} -> ${serviceName}`, 'info');
+        currentState.data.serviceChosen = serviceName;
         currentState.data.serviceKeyChosen = chosenServiceKey;
-        currentState.step = 'awaiting_day_choice';
+        currentState.step = 'awaiting_day_choice'; // Set state for day choice
         stateManager.setUserState(userFrom, currentState);
-        log(`User ${userFrom} chose service: ${currentState.data.serviceChosen} (key: ${chosenServiceKey})`, 'info');
+        log(`User ${userFrom} chose service: ${serviceName} (key: ${chosenServiceKey}). State set to awaiting_day_choice.`, 'info');
 
-        const serviceAvailability = appData.mockAvailability[currentState.data.serviceChosen];
-        if (!serviceAvailability || Object.keys(serviceAvailability).length === 0) {
-            await sendMessageWithTyping(client, userFrom, `Desculpe, não temos horários disponíveis para ${currentState.data.serviceChosen} no momento.`, chat);
-            await sendMessageWithTyping(client, userFrom, "Digite 'menu' para ver outras opções.", chat);
+        // Now, directly call handleDayChoice to present the available days to the user.
+        // Pass an empty string or null for messageBody as handleDayChoice will initiate day listing.
+        // The currentState is already updated.
+        try {
+            await handleDayChoice(client, msg, chat, userName, userFrom, '', currentState, stateManager, appData);
+        } catch (dayChoiceError) {
+            log(`Error calling handleDayChoice from handleServiceChoice for user ${userFrom}: ${dayChoiceError.message} ${dayChoiceError.stack}`, 'error');
+            await sendMessageWithTyping(client, userFrom, "Ocorreu um erro ao buscar os dias disponíveis. Por favor, tente 'menu' para recomeçar.", chat);
             stateManager.resetUserState(userFrom);
-            return;
         }
 
-        let availabilityMessage = `Ótimo! Para ${currentState.data.serviceChosen}, temos os seguintes dias disponíveis nesta semana:\n`;
-        Object.keys(serviceAvailability).forEach(dayKey => {
-            const dayInfo = serviceAvailability[dayKey];
-            availabilityMessage += `\n${dayKey}. ${dayInfo.day}`;
-        });
-        availabilityMessage += "\n\nPor favor, digite o número do dia desejado:";
-        await sendMessageWithTyping(client, userFrom, availabilityMessage, chat);
     } else {
         log(`User ${userFrom} provided invalid service key: ${chosenServiceKey}`, 'warn');
-        let serviceMessage = "Serviço inválido. Por favor, escolha um dos números da lista:\n";
-        Object.keys(appData.services).forEach(key => {
+        let serviceMessage = "Opção de serviço inválida. Por favor, escolha um dos números abaixo:\n";
+        for (const key in appData.services) {
             serviceMessage += `\n${key}. ${appData.services[key]}`;
-        });
+        }
         await sendMessageWithTyping(client, userFrom, serviceMessage, chat);
+        // Keep current state (awaiting_service_choice) for retry
     }
 }
 
