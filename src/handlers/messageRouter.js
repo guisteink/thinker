@@ -2,10 +2,10 @@ const { sendMessageWithTyping } = require('../utils/messageUtils');
 const {
     handleInitialChoice,
     handleServiceChoice,
-    handleDayChoice,   
-    handleTimeChoice,   
+    handleDayChoice,
+    handleTimeChoice, // Ensure this is imported
     handleDefault
-} = require('./index');
+} = require('./index'); // Assuming index.js exports handleTimeChoice
 const { log } = require('../utils/log');
 
 async function routeMessage(client, msg, chat, userName, userFrom, messageBody, stateManager, appData) {
@@ -56,7 +56,7 @@ async function routeMessage(client, msg, chat, userName, userFrom, messageBody, 
                 log(`Executing handleDayChoice for ${userFrom}`, 'debug');
                 await handleDayChoice(...handlerArgs);
                 break;
-            case 'awaiting_time_choice': 
+            case 'awaiting_time_choice': // Ensure this case exists
                 log(`Executing handleTimeChoice for ${userFrom}`, 'debug');
                 await handleTimeChoice(...handlerArgs);
                 break;

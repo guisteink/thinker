@@ -39,7 +39,7 @@ class MongoService {
     try {
       const newAppointment = new this.Appointment(appointmentData);
       await newAppointment.save();
-      log(`Agendamento criado para ${appointmentData.nomeCliente} em ${moment(appointmentData.data).format('YYYY-MM-DD')} às ${appointmentData.hora}`, 'info');
+      log(`Agendamento criado para ${appointmentData.nomeCliente} em ${moment(appointmentData.data).tz('America/Sao_Paulo').format('YYYY-MM-DD HH:mm')}`, 'info');
       return newAppointment.toObject(); 
     } catch (error) {
       log(`Erro ao criar agendamento: ${error.message} - Data: ${JSON.stringify(appointmentData)}`, 'error');
@@ -139,51 +139,82 @@ class MongoService {
   }
 
   /**
-   * Verifica horários disponíveis para uma data e atendente específicos.
+   * Verifica horários disponíveis para uma data específica.
    * @param {string} dataAgendamento - Data no formato YYYY-MM-DD.
-   * @param {string} nomeAtendente - Nome do atendente.
-   * @param {number} duracaoServico - Duração do serviço em minutos.
+   * @param {number} duracaoServicoMinutos - Duração do serviço em minutos.
    * @param {string} horarioFuncionamentoInicio - Ex: "09:00"
    * @param {string} horarioFuncionamentoFim - Ex: "18:00"
-   * @param {number} intervaloMinimo - Intervalo mínimo entre agendamentos em minutos (ex: 15).
+   * @param {number} intervaloMinimoSlots - Intervalo mínimo entre inícios de slots em minutos (ex: 15).
    * @returns {Promise<Array<string>>} Lista de horários disponíveis (ex: ["09:00", "10:30"]).
    */
-  async getAvailableSlots(dataAgendamento, nomeAtendente, duracaoServico, horarioFuncionamentoInicio = "09:00", horarioFuncionamentoFim = "18:00", intervaloMinimo = 15) {
+  async getAvailableSlots(
+    dataAgendamento,
+    duracaoServicoMinutos,
+    horarioFuncionamentoInicio = "09:00",
+    horarioFuncionamentoFim = "18:00",
+    intervaloMinimoSlots = 15
+  ) {
     try {
-      const existingAppointments = await this.findAppointments({
-        dataAgendamento,
-        nomeAtendente
+      const timezone = 'America/Sao_Paulo';
+      const targetDateMoment = moment.tz(dataAgendamento, 'YYYY-MM-DD', timezone);
+
+      if (!targetDateMoment.isValid()) {
+        log(`Data de agendamento inválida fornecida para getAvailableSlots: ${dataAgendamento}`, 'error');
+        return [];
+      }
+
+      const dayStart = targetDateMoment.clone().startOf('day').toDate();
+      const dayEnd = targetDateMoment.clone().endOf('day').toDate();
+
+      const existingAppointments = await this.Appointment.find({
+        data: {
+          $gte: dayStart,
+          $lte: dayEnd
+        }
+      }).sort({ data: 1 }).lean();
+
+      const availableSlots = [];
+      const openingMoment = targetDateMoment.clone().set({
+        hour: parseInt(horarioFuncionamentoInicio.split(':')[0]),
+        minute: parseInt(horarioFuncionamentoInicio.split(':')[1]),
+        second: 0, millisecond: 0
+      });
+      const closingMoment = targetDateMoment.clone().set({
+        hour: parseInt(horarioFuncionamentoFim.split(':')[0]),
+        minute: parseInt(horarioFuncionamentoFim.split(':')[1]),
+        second: 0, millisecond: 0
       });
 
-      const slots = [];
-      let currentTime = this._timeStringToMinutes(horarioFuncionamentoInicio);
-      const endTime = this._timeStringToMinutes(horarioFuncionamentoFim);
+      let currentSlotStartMoment = openingMoment.clone();
 
-      while (currentTime + duracaoServico <= endTime) {
-        const slotStart = currentTime;
-        const slotEnd = currentTime + duracaoServico;
-        let isAvailable = true;
+      while (currentSlotStartMoment.clone().add(duracaoServicoMinutos, 'minutes').isSameOrBefore(closingMoment)) {
+        const potentialSlotStart = currentSlotStartMoment.clone();
+        const potentialSlotEnd = currentSlotStartMoment.clone().add(duracaoServicoMinutos, 'minutes');
 
+        let isSlotFree = true;
         for (const app of existingAppointments) {
-          const appStart = this._timeStringToMinutes(app.horaInicio);
-          const appEnd = this._timeStringToMinutes(app.horaFim);
+          const appStartMoment = moment(app.data).tz(timezone);
+          const existingAppDuration = duracaoServicoMinutos;
+          const appEndMoment = appStartMoment.clone().add(existingAppDuration, 'minutes');
 
-          // Verifica sobreposição
-          if (Math.max(slotStart, appStart) < Math.min(slotEnd, appEnd)) {
-            isAvailable = false;
+          if (potentialSlotStart.isBefore(appEndMoment) && potentialSlotEnd.isAfter(appStartMoment)) {
+            isSlotFree = false;
             break;
           }
         }
 
-        if (isAvailable) {
-          slots.push(this._minutesToTimeString(slotStart));
+        if (isSlotFree) {
+          availableSlots.push(potentialSlotStart.format('HH:mm'));
         }
-        currentTime += intervaloMinimo; // Avança para o próximo slot possível
+
+        currentSlotStartMoment.add(intervaloMinimoSlots, 'minutes');
       }
-      log(`Horários disponíveis para ${dataAgendamento} com ${nomeAtendente}: ${slots.join(', ')}`, 'info');
-      return slots;
+
+      log(`Available slots for ${dataAgendamento} (duration ${duracaoServicoMinutos}min, interval ${intervaloMinimoSlots}min, TZ: ${timezone}): ${availableSlots.join(', ')}`, 'info');
+      return availableSlots;
+
     } catch (error) {
-      log(`Erro ao buscar horários disponíveis: ${error.message}`, 'error');
+      log(`Erro ao buscar horários disponíveis para ${dataAgendamento}: ${error.message} ${error.stack}`, 'error');
       throw error;
     }
   }

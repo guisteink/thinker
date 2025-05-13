@@ -16,13 +16,14 @@ const appointmentSchema = new mongoose.Schema({
         required: [true, 'O serviço agendado é obrigatório.'],
         trim: true
     },
-    hora: {
-        type: String, 
-        required: [true, 'A hora do agendamento é obrigatória.'],
-    },
     data: {
-        type: Date, // Armazena como data completa, mas pode ser usada para filtrar por dia
-        required: [true, 'A data do agendamento é obrigatória.']
+        type: Date, // Armazena a data e hora completas do agendamento
+        required: [true, 'A data e hora do agendamento são obrigatórias.']
+    },
+    nomeAtendente: { // Novo campo
+        type: String,
+        required: [true, 'O nome do atendente é obrigatório.'],
+        default: 'gui' // Valor padrão
     },
     clienteRecorrente: {
         type: Boolean,
@@ -52,6 +53,17 @@ appointmentSchema.pre('findOneAndUpdate', function(next) {
     next();
 });
 
+// Função para buscar agendamentos existentes em um intervalo de tempo
+appointmentSchema.statics.findAppointmentsInRange = async function(dayStart, dayEnd) {
+    const existingAppointments = await this.find({
+        data: {
+            $gte: dayStart,
+            $lte: dayEnd
+        },
+        nomeAtendente: 'gui' // Filter by attendant
+    }).sort({ data: 1 }).lean();
+    return existingAppointments;
+};
 
 const Appointment = mongoose.model('Appointment', appointmentSchema);
 
