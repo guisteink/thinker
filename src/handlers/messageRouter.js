@@ -3,7 +3,8 @@ const {
     handleInitialChoice,
     handleServiceChoice,
     handleDayChoice,
-    handleTimeChoice, // Ensure this is imported
+    handleTimeChoice,
+    handleCancelChoice,
     handleDefault
 } = require('./index'); // Assuming index.js exports handleTimeChoice
 const { log } = require('../utils/log');
@@ -21,7 +22,13 @@ async function routeMessage(client, msg, chat, userName, userFrom, messageBody, 
     if (isMenuCommand || isCancelCommand) {
         log(`Explicit 'menu' or 'cancelar' command received from ${userFrom}. Resetting state and showing menu.`, 'info');
         currentState = stateManager.resetUserState(userFrom);
-        const welcomeMessage = `Olá ${userName}, aqui é o ${appInfo.nomePessoa} e estou em horário de trabalho.\nO que deseja?\n\n1. Agendar horário\n2. Falar pessoalmente`;
+        const welcomeMessage = `Olá ${userName}, aqui é o ${appInfo.nomePessoa} e estou em horário de trabalho.
+O que deseja?
+
+1. Agendar horário (aqui você verá meus horários disponíveis)
+2. Cancelar horário
+3. Alterar horário
+4. Falar pessoalmente`;
         await sendMessageWithTyping(client, userFrom, welcomeMessage, chat);
         return;
     }
@@ -30,7 +37,13 @@ async function routeMessage(client, msg, chat, userName, userFrom, messageBody, 
         if (currentState.step !== 'awaiting_initial_choice') {
             log(`Standard greeting "${messageBody}" received from ${userFrom}. User not in 'awaiting_initial_choice' (current: ${currentState.step}). Resetting and showing menu.`, 'info');
             currentState = stateManager.resetUserState(userFrom);
-            const welcomeMessage = `Olá ${userName}, aqui é o Gui e estou em horário de trabalho.\nO que deseja?\n\n1. Agendar horário\n2. Falar pessoalmente`;
+            const welcomeMessage = `Olá ${userName}, aqui é o ${appInfo.nomePessoa} e estou em horário de trabalho.
+O que deseja?
+
+1. Agendar horário (aqui você verá meus horários disponíveis)
+2. Cancelar horário
+3. Alterar horário
+4. Falar pessoalmente`;
             await sendMessageWithTyping(client, userFrom, welcomeMessage, chat);
             return;
         } else {
@@ -52,6 +65,11 @@ async function routeMessage(client, msg, chat, userName, userFrom, messageBody, 
             case 'awaiting_service_choice':
                 log(`Executing handleServiceChoice for ${userFrom}`, 'debug');
                 await handleServiceChoice(...handlerArgs);
+                break;
+            case 'awaiting_cancel_choice':
+            case 'awaiting_cancel_selection':
+                log(`Executing handleCancelChoice for ${userFrom}`, 'debug');
+                await handleCancelChoice(...handlerArgs);
                 break;
             case 'awaiting_day_choice': // This will now initiate day listing
             case 'awaiting_day_selection_from_list': // New state for when user picks a day number

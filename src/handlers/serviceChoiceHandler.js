@@ -1,6 +1,5 @@
 const { sendMessageWithTyping } = require('../utils/messageUtils');
 const { log } = require('../utils/log');
-// Import handleDayChoice to call it directly after a service is chosen
 const { handleDayChoice } = require('./dayChoiceHandler');
 
 async function handleServiceChoice(client, msg, chat, userName, userFrom, messageBody, currentState, stateManager, appData) {

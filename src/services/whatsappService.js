@@ -15,6 +15,7 @@ function initializeClient() {
     clientInstance.on('qr', qr => {
         log('QR code received, please scan.', 'info');
         qrcode.generate(qr, { small: true });
+        // qrcode.generate(qr);
     });
 
     clientInstance.on('ready', () => {
@@ -37,7 +38,6 @@ function initializeClient() {
     clientInstance.on('loading_screen', (percent, message) => {
         log(`WhatsApp loading screen: ${percent}% - ${message}`, 'debug');
     });
-
 
     return clientInstance.initialize()
         .then(() => {

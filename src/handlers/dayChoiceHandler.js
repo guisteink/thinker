@@ -42,11 +42,11 @@ async function handleDayChoice(client, msg, chat, userName, userFrom, messageBod
         ) {
             if (d.isoWeekday() <= 5) {
                 // strip "-feira"
-                const raw = d.format('dddd');           // "quarta-feira"
-                const day = raw.split('-')[0];          // "quarta"
+                const raw = d.format('dddd');
+                const day = raw.split('-')[0];
                 availableDays.push({
                     key: String(key++),
-                    name: day,                            // "quarta"
+                    name: day,
                     dateString: d.format('YYYY-MM-DD'),
                     displayFormat: `${day.charAt(0).toUpperCase() + day.slice(1)} (${d.format('DD/MM')})`
                 });

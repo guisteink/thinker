@@ -231,6 +231,31 @@ class MongoService {
     }
   }
 
+  /**
+   * Retorna agendamentos futuros de um usuário.
+   * @param {string} numeroContato
+   * @param {Date} fromDate
+   */
+  async getAppointmentsForUser(numeroContato, fromDate) {
+    try {
+      return await this.Appointment.find({
+        numeroContato,
+        data: { $gte: fromDate }
+      }).sort({ data: 1 }).lean();
+    } catch (error) {
+      log(`Erro ao buscar agendamentos futuros: ${error.message}`, 'error');
+      throw error;
+    }
+  }
+
+  /**
+   * Cancela um agendamento pelo ID (deleta)
+   * @param {string} id
+   */
+  async cancelAppointment(id) {
+    return this.deleteAppointment(id);
+  }
+
   _timeStringToMinutes(timeStr) { 
     const [hours, minutes] = timeStr.split(':').map(Number);
     return hours * 60 + minutes;
